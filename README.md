@@ -10,6 +10,9 @@ a few small changes. It has no other dependencies.
 Lox was created by Robert Nystrom as part of the [Crafting Interpreters](https://craftinginterpreters.com/)
 book.
 
+The sample repo has a comprehensive test suite which `plox` passes as well. Refer
+to the testing section of the README for more info.
+
 # Usage
 
 The quickest way to start using plox is with the [uv](https://github.com/astral-sh/uv)
@@ -37,14 +40,42 @@ uv run --no-dev plox examples/sayHi.lox
 Hi, Dear Reader!
 ```
 
+There is also a `plox.sh` script which can be used to invoke `plox` from anywhere.
+
 The CLI functions exactly like the reference `jlox` implementation found in the
 author's [example code repo](https://github.com/munificent/craftinginterpreters).
 
 There is one additional CLI function to print the AST:
 ```bash
-uv run --no-dev plox print_ast examples/sayHi.lox 
+uv run --no-dev plox print_ast examples/sayHi.lox
 1: (fun sayHi(first last) (print (+ (+ (+ (+ Hi,  first)  ) last) !)))
 2: (; (call sayHi  Dear Reader))
+```
+
+# Testing
+
+[Original Docs](https://github.com/munificent/craftinginterpreters?tab=readme-ov-file#testing)
+
+The sample repo includes a test suite of lox files for validation. It uses the
+dart language, which can be installed via Homebrew on macOS:
+
+```bash
+brew install dart-lang/dart/dart@2.19
+# brew link will make this the "primary" version of dart on your machine
+# Alternatively, it can be added to the PATH for the current session:
+# export PATH="$(brew --prefix)/opt/dart@2.19/bin:$PATH"
+brew link dart-lang/dart/dart@2.19
+```
+
+Additionally, `clox` is built as a dependency of the test suite, so a C compiler
+and `make` are required.
+
+The `test.sh` script will clone a copy of the sample repo, build `clox` and the
+dart test snapshot, then run the full `jlox` test suite:
+
+```bash
+./test.sh
+All 239 tests passed (556 expectations).
 ```
 
 # Development

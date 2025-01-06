@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from lox.lox_instance import LoxInstance
 
 
-@dataclass
+@dataclass(eq=False)
 class LoxFunction(LoxCallable):
     declaration: Function
     # "Stored" environment to be used for closures, ie functions defined in
@@ -35,6 +35,9 @@ class LoxFunction(LoxCallable):
     # This is a flag rather than just a check on the name of the method in
     # order to avoid the edge case of defining a function named init()
     is_initializer: bool
+
+    def __repr__(self) -> str:
+        return self.to_string()
 
     # Create a bound method on a class, creating an enclosing scope and
     # assigning a this keyword for instance access
