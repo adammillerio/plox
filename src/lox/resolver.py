@@ -113,7 +113,7 @@ class Resolver(ExprVisitor[None], StmtVisitor[None]):
         # var a = "first"
         # var a = "second"; <- Error
         if name.lexeme in scope:
-            Lox.error(name, "Already a variable with this scope.")
+            Lox.error(name, "Already a variable with this name in this scope.")
 
         # Place the var in the scope on tbe top of the stack, with a false to
         # indicate that it is not initialized yet. This prevents it from being
@@ -179,6 +179,10 @@ class Resolver(ExprVisitor[None], StmtVisitor[None]):
 
         for method in stmt.methods:
             declaration = FunctionType.METHOD
+
+            if method.name.lexeme == "init":
+                declaration = FunctionType.INITIALIZER
+
             self.resolve_function(method, declaration)
 
         # Discard the scope with "this"

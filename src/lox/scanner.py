@@ -173,7 +173,7 @@ class Scanner:
         # Scanned to the end of source without finding closing double
         # quote.
         if self.is_at_end():
-            Lox.error(self.line, "Unexpected character.")
+            Lox.error(self.line, "Unterminated string.")
             return
 
         # Advance to capture the closing " that was matched in peek().

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-from sys import argv, exit, stderr
+from sys import argv, exit, stderr, stdin
 
 from lox.ast_printer import AstPrinter
 from lox.interpreter import Interpreter
@@ -13,18 +13,26 @@ from lox.scanner import Scanner
 def main() -> None:
     # First argument in argv is always the script itself in Python
     if len(argv) == 2:
+        if argv[1] == "run_prompt":
+            run_prompt()
+            return
+
         run_file(argv[1])
     elif len(argv) == 3:
         command = argv[1]
         match command:
             case "run":
                 source = argv[2]
+                if source == "-":
+                    try:
+                        source = stdin.read()
+                    except KeyboardInterrupt:
+                        return
+
                 run(source)
             case "run_file":
                 file = argv[2]
                 run_file(file)
-            case "run_prompt":
-                run_prompt()
             case "print_ast":
                 file = argv[2]
                 print_ast(file)
@@ -52,7 +60,7 @@ def run_file(path: str) -> None:
     # Indicate an error in the exit code.
     if Lox.had_error:
         exit(65)
-    elif Lox.had_error:
+    elif Lox.had_runtime_error:
         exit(70)
 
 
