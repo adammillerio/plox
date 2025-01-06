@@ -14,6 +14,9 @@ class LoxInstance:
     klass: "LoxClass"
     fields: Dict[str, object] = field(default_factory=dict)
 
+    def __repr__(self) -> str:
+        return self.to_string()
+
     def get(self, name: Token) -> object:
         if name.lexeme in self.fields:
             return self.fields[name.lexeme]

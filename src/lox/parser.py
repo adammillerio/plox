@@ -409,7 +409,7 @@ class Parser:
             # unary (2), recursing as many times as we continue to find unary
             # operators
             right = self.unary()
-            Binary(expr, operator, right)
+            expr = Binary(expr, operator, right)
 
         return expr
 

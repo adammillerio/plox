@@ -10,6 +10,10 @@ from lox.token import Token
 R = TypeVar("R", covariant=True)
 
 
+# eq=False ensures the default behavior in Python's (and Java's) object classes
+# is used for equality and hashing, which is to use the object's unique identifier
+# in memory using the id() function. This avoids exprs/stmts at different scopes
+# having the same hash.
 @dataclass(eq=False, frozen=True)
 class Expr(metaclass=ABCMeta):
     @abstractmethod

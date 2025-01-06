@@ -1,3 +1,6 @@
+# Cloned sample repo, for testing
+craftinginterpreters/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

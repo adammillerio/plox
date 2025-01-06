@@ -55,6 +55,9 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         # Native function clock(), which returns the current system time in
         # seconds as a double.
         class ClockBuiltIn(LoxCallable):
+            def __repr__(self) -> str:
+                return self.to_string()
+
             def arity(self) -> int:
                 return 0
 
@@ -65,7 +68,7 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
             def to_string(self) -> str:
                 return "<native fn>"
 
-        self.globals.define("clock", ClockBuiltIn)
+        self.globals.define("clock", ClockBuiltIn())
 
     def interpret(self, statements: List[Stmt]) -> None:
         try:
@@ -482,6 +485,9 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         spec. In Python, float("nan") != float("nan") as expected, so this
         method changes the behavior to match Java for consistency.
 
+        Additionally, comparison between float 0/1 and boolean True/False are
+        corrected to match Java's behavior and Lox's expectation.
+
         Args:
             a: object. Left operand.
             b: object. Right operand.
@@ -499,6 +505,14 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         # (nan == nan) == true
         if (isinstance(a, float) and isnan(a)) and (isinstance(b, float) and isnan(b)):
             return True
+        # (0 == false) == false
+        # (true == 1) == false
+        # In Python, these are both True, so it has to be handled here
+        # See munificent/craftinginterpreters/test/operator/equals.lox
+        if (isinstance(a, bool) and isinstance(b, float)) or (
+            isinstance(a, float) and isinstance(b, bool)
+        ):
+            return False
 
         # Use __eq__ method
         return a == b
@@ -525,5 +539,11 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
                 text = text[0:-2]
 
             return text
+
+        if isinstance(obj, bool):
+            # Required to match Java
+            # True -> true
+            # See munificent/craftinginterpreters/test/bool/*.lox
+            return str(obj).lower()
 
         return str(obj)

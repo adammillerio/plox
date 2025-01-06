@@ -18,6 +18,9 @@ class LoxClass(LoxCallable):
     superclass: Optional[LoxClass] = None
     methods: Dict[str, LoxFunction] = field(default_factory=dict)
 
+    def __repr__(self) -> str:
+        return self.to_string()
+
     def find_method(self, name: str) -> Optional[LoxFunction]:
         if name in self.methods:
             return self.methods[name]
