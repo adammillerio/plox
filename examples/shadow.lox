@@ -1,0 +1,8 @@
+fun shadow() {
+    print clock();
+    fun clock() {
+        return "clock";
+    }
+    print clock();
+}
+shadow();
