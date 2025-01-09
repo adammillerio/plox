@@ -483,6 +483,20 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         self.execute_block(stmt.statements, Environment(self.environment))
 
     def visit_class_stmt(self, stmt: Class) -> None:
+        """Execute a class statement.
+
+        This creates a LoxClass representation of the class at runtime, additionally
+        resolving the superclass and creating a closure Environment for the super
+        keyword if necessary.
+
+        All methods on the class will have their LoxFunction representations
+        created and assigned to the class as well. These methods are then called
+        by using the bind() function with a class instance at runtime.
+
+        Args:
+            stmt: Class. Class statement to execute.
+        """
+
         # Ensure the superclass is actually a class, if supplied
         superclass = None
         if stmt.superclass is not None:
