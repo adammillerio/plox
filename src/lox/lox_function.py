@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
 from lox.environment import Environment
@@ -14,34 +13,66 @@ if TYPE_CHECKING:
     from lox.lox_instance import LoxInstance
 
 
-@dataclass(eq=False)
 class LoxFunction(LoxCallable):
-    declaration: Function
-    # "Stored" environment to be used for closures, ie functions defined in
-    # scope of another function, to enclose/capture any variables referenced
-    # in the function which may be in the outer scope
-    # fun makeCounter() {
-    #   var i = 0;
-    #   fun count() {
-    #     i = i + 1;
-    #     print i;
-    #   }
-    #
-    #   return count;
-    # }
-    # count is a closure which encloses i by storing it in this Environment
-    closure: Environment
-    # Flag inidicating that tis callable is a constructor method on a class
-    # This is a flag rather than just a check on the name of the method in
-    # order to avoid the edge case of defining a function named init()
-    is_initializer: bool
+    """Lox function.
+
+    Represents a Lox function, which is a collection of statements and a closure.
+
+    The closure is a "stored" environment be used for things such as functions defined
+    in scope of another function, to enclose/capture any variables referenced in
+    the function which may be in the outer scope. For example in:
+    fun makeCounter() {
+      var i = 0;
+      fun count() {
+        i = i + 1;
+        print i;
+      }
+
+      return count;
+    }
+
+    count is a closure which encloses i by storing it in this Environment
+
+    Lox functions can be defined at any global or local scope, as well as on
+    classes as methods.
+
+    Args:
+        declaration: Function. Function statement for this declaration, containing
+            the body statements of the function.
+        closure: Stored environment for closures.
+        is_initializer: bool. If True, this method is the init() method for a Lox
+            class and will be called when creating new instances.
+    """
+
+    def __init__(
+        self, declaration: Function, closure: Environment, is_initializer: bool
+    ) -> None:
+        self.declaration = declaration
+        self.closure = closure
+        self.is_initializer = is_initializer
 
     def __repr__(self) -> str:
+        # Override to custom string representation, to match Java and tests.
         return self.to_string()
 
     # Create a bound method on a class, creating an enclosing scope and
     # assigning a this keyword for instance access
     def bind(self, instance: "LoxInstance") -> LoxFunction:
+        """Create a bound version of this method on a class instance.
+
+        This creates an enclosing scope for the function with a "this" keyword
+        registered which points to the instance which is invoking the method,
+        similar to the self keyword in Python.
+
+        Args:
+            instance: LoxInstance. Lox class instance to bind this method to
+                prior to calling.
+
+        Returns:
+            bound_method: LoxFunction. Copy of this funtion with the added this
+                closure.
+        """
+
         # Create the enclosing scope for this "bound" instance method on a
         # given class
         environment = Environment(self.closure)
@@ -54,16 +85,34 @@ class LoxFunction(LoxCallable):
         return LoxFunction(self.declaration, environment, self.is_initializer)
 
     def to_string(self) -> str:
+        # <fn add>
         return f"<fn {self.declaration.name.lexeme}>"
 
     def arity(self) -> int:
+        """Return the arity of this function.
+
+        Returns:
+            arity: int. Number of arguments to the function.
+        """
+
         return len(self.declaration.params)
 
     def call(self, interpreter: Interpreter, arguments: List[object]) -> object:
+        """Call a Lox function.
+
+        This sets up a new Environment in the scope chain and executes the
+        statements in the function body.
+
+        Args:
+            interpreter: Interpreter. Runtime interpreter which is calling the
+                function.
+            arguments: List[object]. All arguments to the function, if any.
+        """
+
         # Create a new environment in the scope chain for this function
         # This is done at call time and not declaration time, since the same
         # function can be called many times during recursion and each one needs
-        # it's own sscope. This Environment has the declaring scope's Environment
+        # it's own scope. This Environment has the declaring scope's Environment
         # as a parent in order to access state from declaration scope at runtime
         environment = Environment(self.closure)
 

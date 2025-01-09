@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from lox.expr import (
     Assign,
@@ -34,24 +33,51 @@ from lox.stmt import (
 from lox.token import Token
 from lox.token_type import TokenType
 
+# Type aliases to common collections of exprs/stmts for return value refinement
+ParsedPrimary = Union[Literal, Super, This, Variable, Grouping]
+ParsedCall = Union[ParsedPrimary, Call, Get]
+ParsedUnary = Union[Unary, ParsedCall]
+ParsedEquality = Union[Binary, ParsedUnary]
+ParsedLogicOr = Union[Logical, ParsedEquality]
+
 
 class ParseError(LoxRuntimeError):
+    """Runtime error for any fatal errors encountered during parsing."""
+
     pass
 
 
-@dataclass
 class Parser:
-    tokens: List[Token]
-    current: int = 0
+    """Lox Parser
+
+    This class processes a set of Tokens provided by the Scanner and generates
+    Lox statements, to be used by the Resolver and Interpreter.
+
+    Args:
+        tokens: List[Token]. Tokens to process, typically generated from the Scanner
+            against a source text.
+
+    Public Attributes:
+        current: int. Current token index of the parser.
+    """
+
+    def __init__(self, tokens: List[Token]) -> None:
+        self.tokens = tokens
+        self.current = 0
 
     def parse(self) -> List[Stmt]:
         """Parse all tokens and return the expression.
+
+        This is the top level of the parser, returning all statements parsed
+        from the Tokens provided.
+
+        Grammar Rule:
+        program → declaration* EOF ;
 
         Returns:
             stmts: List[Stmt]. Parsed statements.
         """
 
-        # program → declaration* EOF ;
         statements = []
 
         while not self.is_at_end():
@@ -60,10 +86,32 @@ class Parser:
         return statements
 
     def expression(self) -> Expr:
+        """Parse an expression.
+
+        Grammar Rule:
+        expression → assignment ;
+
+        Returns:
+            expression: Expr. Parsed expression.
+        """
+
         return self.assignment()
 
     # declaration → classDecl | funDecl | varDecl | statement ;
     def declaration(self) -> Optional[Stmt]:
+        """Parse a declaration statement.
+
+        If a parser error is encountered, this will synchronize to the next valid
+        statement and return None.
+
+        Grammar Rule:
+        declaration → classDecl | funDecl | varDecl | statement ;
+
+        Returns:
+            statement: Optional[Stmt]. The parsed declaration statement, if
+                successful.
+        """
+
         try:
             if self.match(TokenType.CLASS):
                 return self.class_declaration()
@@ -79,8 +127,16 @@ class Parser:
             self.synchronize()
             return None
 
-    # classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}" ;
-    def class_declaration(self) -> Stmt:
+    def class_declaration(self) -> Class:
+        """Parse a class declaration.
+
+        Grammar Rule:
+        classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}" ;
+
+        Return:
+            class: Class. Parsed Class declaration statement.
+        """
+
         # class Foo < Bar { add(a, b, c) { print a + b + c; } }
         # name = "Foo"
         name = self.consume(TokenType.IDENTIFIER, "Expect class name.")
@@ -103,9 +159,19 @@ class Parser:
 
         return Class(name, superclass, methods)
 
-    # statement → exprStatement | forStmt | ifStmt | printStmt
-    # | whileStmt | block ;
-    def statement(self) -> Stmt:
+    def statement(self) -> Union[While, If, Print, Return, Block, Expression]:
+        """Parse a non-declarative statement.
+
+        These statements do not declare/bind anything.
+
+        Grammar Rule:
+        statement → exprStatement | forStmt | ifStmt | printStmt | returnStmt
+                  | whileStmt | block ;
+
+        Returns:
+            statement: Stmt. Parsed non-declarative statement.
+        """
+
         if self.match(TokenType.FOR):
             return self.for_statement()
         if self.match(TokenType.IF):
@@ -121,8 +187,23 @@ class Parser:
 
         return self.expression_statement()
 
-    def for_statement(self) -> Stmt:
-        # for (var i = 0; i < 10; i = i + 1) print i;
+    def for_statement(self) -> Union[Block, While]:
+        """Parse a for-loop statement.
+
+        In Lox, for loops are desugared into an equivalent representation based
+        on Block, Var, and While statements. See the docs for lox.stmt.While for
+        more info.
+
+        Grammar Rule:
+        forStmt → "for" "(" ( varDecl | exprStmt | ";" )
+                            expression? ";"
+                            expression? ")" statement ;
+
+        Returns:
+            statement: Union[Block, While]. For loop parsed and desugared into
+                       Var/While statements.
+        """
+
         self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'.")
 
         if self.match(TokenType.SEMICOLON):
@@ -182,9 +263,17 @@ class Parser:
 
         return body
 
-    # ifStmt → "if" "(" expression ")" statement
-    # ( "else" statement )? ;
-    def if_statement(self) -> Stmt:
+    def if_statement(self) -> If:
+        """Parse an if statement.
+
+        Grammar Rule:
+        ifStmt  → "if" "(" expression ")" statement
+                  ( "else" statement )? ;
+
+        Returns:
+            statement: If. Parsed if statement.
+        """
+
         self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'.")
         condition = self.expression()
         self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition.")
@@ -196,8 +285,18 @@ class Parser:
 
         return If(condition, then_branch, else_branch)
 
-    # varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
-    def var_declaration(self) -> Stmt:
+    def var_declaration(self) -> Var:
+        """Parse a variable declaration.
+
+        Variable declarations declare and optionally define a variable.
+
+        Grammar Rule:
+        varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
+
+        Returns:
+            declaration: Var. Parsed variable declaration.
+        """
+
         name = self.consume(TokenType.IDENTIFIER, "Expect variable name.")
 
         initializer = None
@@ -208,7 +307,16 @@ class Parser:
 
         return Var(name, initializer)
 
-    def while_statement(self) -> Stmt:
+    def while_statement(self) -> While:
+        """Parse a while statement.
+
+        Grammar Rule:
+        whileStmt → "while" "(" expression ")" statement ;
+
+        Returns:
+            statement: While. Parsed while statement.
+        """
+
         self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'.")
         condition = self.expression()
         self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.")
@@ -217,14 +325,32 @@ class Parser:
 
         return While(condition, body)
 
-    def print_statement(self) -> Stmt:
+    def print_statement(self) -> Print:
+        """Parse a print statement.
+
+        Grammar Rule:
+        printStmt → "print" expression ";" ;
+
+        Returns:
+            statement: Print. Parsed print statement.
+        """
+
         value = self.expression()
 
         self.consume(TokenType.SEMICOLON, "Expect ';' after value.")
 
         return Print(value)
 
-    def return_statement(self) -> Stmt:
+    def return_statement(self) -> Return:
+        """Parse a return statement.
+
+        Grammar Rule:
+        returnStmt → "return" expression? ";" ;
+
+        Returns:
+            statement: Return. Parsed return statement.
+        """
+
         keyword = self.previous()
 
         # return;
@@ -238,7 +364,19 @@ class Parser:
         self.consume(TokenType.SEMICOLON, "Expect ';' after expression.")
         return Return(keyword, value)
 
-    def expression_statement(self) -> Stmt:
+    def expression_statement(self) -> Expression:
+        """Parse an expression statement.
+
+        Since the interpreter operates on a list of statements, this is a simple
+        statement which encapsulates a bare expression.
+
+        Grammar Rule:
+        exprStmt → expression ";" ;
+
+        Returns:
+            statement: Expression. Parsed expression statement.
+        """
+
         expr = self.expression()
 
         self.consume(TokenType.SEMICOLON, "Expect ';' after expression.")
@@ -246,6 +384,19 @@ class Parser:
         return Expression(expr)
 
     def function(self, kind: str) -> Function:
+        """Parse a function statement.
+
+        Grammar Rules:
+        function   → IDENTIFIER "(" parameters? ")" block ;
+        parameters → IDENTIFIER ( "," IDENTIFIER )* ;
+
+        Args:
+            kind: str. Kind of function, either a class method or a function.
+
+        Returns:
+            statement: Function. Parsed function statement.
+        """
+
         # fun add(a, b, c) { print a + b + c; }
         # Parse the name of the function
         # name = add
@@ -279,6 +430,17 @@ class Parser:
         return Function(name, parameters, body)
 
     def block(self) -> List[Stmt]:
+        """Parse a block of statements.
+
+        This returns the list of statements which are wrapped in a Block statement.
+
+        Grammar Rule:
+        block → "{" declaration* "}" ;
+
+        Returns:
+            statements: List[Stmt]. List of all parsed statements.
+        """
+
         statements = []
 
         while not self.check(TokenType.RIGHT_BRACE) and not self.is_at_end():
@@ -289,7 +451,18 @@ class Parser:
 
     # assignment → ( call "." )? IDENTIFIER "=" assignment
     # | logic_or ;
-    def assignment(self) -> Expr:
+    def assignment(self) -> Union[Assign, Set, ParsedLogicOr]:
+        """Parse an assignment expression.
+
+        Grammar Rule:
+        assignment → ( call "." )? IDENTIFIER "=" assignment
+                   | logic_or ;
+
+        Returns:
+            expression: Union[Assign, Set, ParsedLogicOr]. Parsed assignment
+                expression.
+        """
+
         # "="
         expr = self.or_expr()
 
@@ -320,8 +493,16 @@ class Parser:
 
         return expr
 
-    # logic_or → logic_and ( "or" logic_and )* ;
-    def or_expr(self) -> Expr:
+    def or_expr(self) -> ParsedLogicOr:
+        """Parse a logic OR expression, or any of lower precedence.
+
+        Grammar Rule:
+        logic_or → logic_and ( "or" logic_and )* ;
+
+        Returns:
+            expression: Union[ParsedLogicOr]. Parsed logic OR expression.
+        """
+
         expr = self.and_expr()
 
         while self.match(TokenType.OR):
@@ -332,7 +513,16 @@ class Parser:
         return expr
 
     # logic_and → equality ( "and" equality )* ;
-    def and_expr(self) -> Expr:
+    def and_expr(self) -> Union[Logical, ParsedEquality]:
+        """Parse a logic AND expression, or any of lower precedence.
+
+        Grammar Rule:
+        logic_and → equality ( "and" equality )* ;
+
+        Returns:
+            expression: Union[Logical, ParsedEquality]. Parsed logic OR expression.
+        """
+
         expr = self.equality()
 
         while self.match(TokenType.AND):
@@ -342,7 +532,16 @@ class Parser:
 
         return expr
 
-    def equality(self) -> Expr:
+    def equality(self) -> ParsedEquality:
+        """Parse an equality expression, or any of lower precedence.
+
+        Grammar Rule:
+        equality → comparison ( ( "!=" | "==" ) comparison )* ;
+
+        Returns:
+            expression: ParsedEquality. Parsed equality expression.
+        """
+
         # comparison (1)
         expr = self.comparison()
 
@@ -360,7 +559,16 @@ class Parser:
         return expr
 
     # comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    def comparison(self) -> Expr:
+    def comparison(self) -> Union[Binary, ParsedUnary]:
+        """Parse a comparison expression, or any of lower precedence.
+
+        Grammar Rule:
+        comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+
+        Returns:
+            expression: Union[Binary, ParsedUnary]. Parsed comparison expression.
+        """
+
         # term (1)
         expr = self.term()
 
@@ -381,7 +589,16 @@ class Parser:
         # Return completed expression
         return expr
 
-    def term(self) -> Expr:
+    def term(self) -> Union[Binary, ParsedUnary]:
+        """Parse a term expression, or any of lower precedence.
+
+        Grammar Rule:
+        term → factor ( ( "-" | "+" ) factor )* ;
+
+        Returns:
+            expression: Union[Binary, ParsedUnary]. Parsed term expression.
+        """
+
         # factor (1)
         expr = self.factor()
 
@@ -397,8 +614,16 @@ class Parser:
         # Return completed expression
         return expr
 
-    # factor → unary ( ( "/" | "*" ) unary )* ;
-    def factor(self) -> Expr:
+    def factor(self) -> Union[Binary, ParsedUnary]:
+        """Parse a factor expression, or any of lower precedence.
+
+        Grammar Rule:
+        factor → unary ( ( "/" | "*" ) unary )* ;
+
+        Returns:
+            expression: Union[Binary, ParsedUnary]. Parsed factor expression.
+        """
+
         # unary (1)
         expr = self.unary()
 
@@ -413,9 +638,16 @@ class Parser:
 
         return expr
 
-    # unary → ( "!" | "-" ) unary
-    # | call ;
-    def unary(self) -> Expr:
+    def unary(self) -> ParsedUnary:
+        """Parse a unary expression,r any of lower precedence.
+
+        Grammar Rule:
+        unary → ( "!" | "-" ) unary | call ;
+
+        Returns:
+            expression: ParsedUnary. Parsed unary expression.
+        """
+
         # ( "!" | "-" ) unary
         if self.match(TokenType.BANG, TokenType.MINUS):
             # ( "!" | "-" )
@@ -429,9 +661,22 @@ class Parser:
         # call
         return self.call()
 
-    # arguments → expression ( "," expression )* ;
-    # Technically the zero argument case in the call grammar is also here
-    def finish_call(self, callee: Expr) -> Expr:
+    def finish_call(self, callee: Expr) -> Call:
+        """Finish and return a call expression.
+
+        This is called by call() and handles argument parsing. It also contains
+        the zero-argument case in the call grammar rule itself.
+
+        Grammar Rule:
+        arguments → expression ( "," expression )* ;
+
+        Args:
+            callee: Expr. Expression to evaluate for the callee.
+
+        Returns:
+            expression: Call. Finished call expression.
+        """
+
         # Continue parsing comma separated call arguments until the right paren
         # matching the left which generated this call is found
         arguments = []
@@ -448,8 +693,16 @@ class Parser:
         # Return call expression with parsed arguments added to the callee
         return Call(callee, paren, arguments)
 
-    # call → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
-    def call(self) -> Expr:
+    def call(self) -> ParsedCall:
+        """Parse a call expression, or a primary.
+
+        Grammar Rule:
+        call → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
+
+        Returns:
+            expression: ParsedCall. Parsed call expression.
+        """
+
         # Parse the "left operand" of the function call (a primary expression)
         expr = self.primary()
 
@@ -470,7 +723,20 @@ class Parser:
 
         return expr
 
-    def primary(self) -> Expr:
+    def primary(self) -> ParsedPrimary:
+        """Parse a primary expression.
+
+        This is the lowest precedence expression and represents a concrete value.
+
+        Grammar Rule:
+        primary → "true" | "false" | "nil" | "this"
+                | NUMBER | STRING | IDENTIFIER | "(" expression ")"
+                | "super" "." IDENTIFIER ;
+
+        Returns:
+            expression: ParsedPrimary. Parsed primary expression.
+        """
+
         # "false"
         if self.match(TokenType.FALSE):
             return Literal(False)
