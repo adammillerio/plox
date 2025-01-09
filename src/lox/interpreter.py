@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from math import isnan
 from time import time
-from typing import Dict, List, cast
+from typing import Dict, List, Union, cast
 
 from lox.environment import Environment
 from lox.expr import (
@@ -47,6 +47,43 @@ from lox.token_type import TokenType
 
 
 class Interpreter(ExprVisitor[object], StmtVisitor[None]):
+    """Lox interpreter.
+
+    This class executes a set of statements returned by the Parser which
+    represent a Lox source. This represents the runtime execution of Lox where
+    all expressions and side effects are interpreted into their Python equivalents.
+
+    For example:
+    # Scan source file
+    tokens = Scanner("a = 2; print a;").scan_tokens()
+
+    # Parse source tokens into statements
+    statements = Parser(tokens).parse()
+
+    # Create interpreter and resolver
+    interpreter = Interpreter()
+    resolver = Resolver(interpreter)
+
+    # Resolve all variables
+    resolver.resolve(statements)
+
+    # Execute source
+    interpreter.interpret(statements)
+
+    2
+
+    Public Attributes:
+        globals: Environment. Environment holding global variable state, including
+            built-in functions.
+        environment: Environment. The environment for the current scope. This
+            starts as globals and then changes as the interpreter enters and
+            exits scopes.
+        locals: Dict[Expr, int]. Mapping of expressions requiring local variable
+            lookups encountered in the Resolver to their "depth" in the scope
+            tree. This is used to traverse the environment linked list when
+            resolving a variable value at runtime.
+    """
+
     def __init__(self) -> None:
         self.globals = Environment()
         self.environment: Environment = self.globals
@@ -71,6 +108,21 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         self.globals.define("clock", ClockBuiltIn())
 
     def interpret(self, statements: List[Stmt]) -> None:
+        """Interpret a set of statements.
+
+        This is the entrypoint for the Interpreter, which will execute the
+        statements in the Interpreter's environment.
+
+        All encountered statements will be executed using execute(), producing
+        any runtime side effects such as printing values to stdout.
+
+        All encountered expressions within statements will be evaluated using
+        evalute(), producing their runtime values.
+
+        Args:
+            statements: List[Stmt]. Statements to interpret.
+        """
+
         try:
             for statement in statements:
                 self.execute(statement)
@@ -78,9 +130,34 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
             Lox.runtime_error(error)
 
     def visit_literal_expr(self, expr: Literal) -> object:
+        """Evaluate a literal expression.
+
+        This returns the value that was eagerly parsed prior to runtime and stored
+        in the Literal instance itself.
+
+        Args:
+            expr: Literal. Literal expression to evaluate.
+
+        Returns:
+            value: object. Inner value of the literal expression.
+        """
+
         return expr.value
 
     def visit_logical_expr(self, expr: Logical) -> object:
+        """Evaluate a logical expression.
+
+        This evaluates the left value of the expression, and the right, unless
+        the operation short circuits.
+
+        Args:
+            expr: Logical. Logical expression to evaluate.
+
+        Returns:
+            value: object. Result of evaluating the left or right operand, based
+                on the result of the logical operation.
+        """
+
         # Evaluate left hand of the logical expression
         left = self.evaluate(expr.left)
 
@@ -97,6 +174,21 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         return self.evaluate(expr.right)
 
     def visit_set_expr(self, expr: Set) -> object:
+        """Evaluate a set expression.
+
+        This evaluates the object being assigned and sets the given value on it.
+
+        Args:
+            expr: Set. Set expression to evaluate.
+
+        Returns:
+            value: object. The evaluated value set on the object.
+
+        Raises:
+            LoxRuntimeError: If the expression attempts to access fields on
+                anything other than a class instance.
+        """
+
         obj = self.evaluate(expr.object)
 
         if not isinstance(obj, LoxInstance):
@@ -107,10 +199,28 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
 
         return value
 
-    def visit_super_expr(self, expr: Super) -> object:
+    def visit_super_expr(self, expr: Super) -> LoxFunction:
+        """Evaluate a super expression.
+
+        This resolves the superclass in the enclosing Environment, as well as the
+        current instance, then binds the method on the superclass to it. See
+        visit_class_stmt for more info.
+
+        Args:
+            expr: Super. Super expression to evaluate.
+
+        Returns:
+            superclass_function: LoxFunction. Method from the superclass bound
+                to the invoking instance.
+
+        Raises:
+            LoxRuntimeError: If the superclass does not have a method with the
+                name provided.
+        """
+
         # Look up the "super" variable which is automatically defined in an
         # enclosing scope during the instance method call if a class has a
-        # superclass. See LoxClass.findMethod for more info
+        # superclass. See LoxClass.find_method for more info
         distance = self.locals[expr]
 
         # Retrieve "super" as the class which is the direct superclass of the
@@ -135,20 +245,31 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
 
         return method.bind(obj)
 
-    def visit_this_expr(self, expr: This) -> object:
-        # Look up the "this" variable which is automatically defined in an
-        # enclosing scope during the instance method call, see
-        # LoxFunction.bind for more info
-        return self.look_up_variable(expr.keyword, expr)
+    def visit_this_expr(self, expr: This) -> LoxInstance:
+        """Evaluate a this expression.
 
-    def visit_unary_expr(self, expr: Unary) -> object:
-        """Interpret a unary value.
+        This will look up the "this" variable which is automatically defined in
+        an enclosing scope during the instance method call, see LoxFunction.bind
+        and visit_class_stmt for more info.
 
         Args:
-            expr: Unary. Expression to interpret.
+            expr: This. This expression to evaluate.
 
         Returns:
-            value: object. Value of the unary expression.
+            this_instance: LoxInstance. The class instance being referenced.
+        """
+
+        # Look up the "this" variable
+        return cast(LoxInstance, self.look_up_variable(expr.keyword, expr))
+
+    def visit_unary_expr(self, expr: Unary) -> object:
+        """Evaluate a unary expression.
+
+        Args:
+            expr: Unary. Unary expression to evaluate.
+
+        Returns:
+            value: object. Result of the unary expression.
         """
 
         # Evaluate the right side of the expression
@@ -168,9 +289,54 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
                 return None
 
     def visit_variable_expr(self, expr: Variable) -> object:
+        """Evaluate a variable expression.
+
+        This will resolve the runtime value for a given variable expression in
+        either the global or local scope. See look_up_variable for more info.
+
+        Args:
+            expr: Variable. Variable expression to evaluate.
+
+        Returns:
+            value: object. Runtime value for variable expression at this scope.
+        """
+
         return self.look_up_variable(expr.name, expr)
 
     def look_up_variable(self, name: Token, expr: Expr) -> object:
+        """Look up a variable.
+
+        Given an expression which requires a variable value (Variable/This/Super),
+        this will use the information populated by the Resolver to locate the
+        closest local scope which contains a variable whose name matches the one
+        referenced in the expression.
+
+        If the variable cannot be found in any local scope, then the global scope
+        is checked. This means that a locally defined variable with the same name
+        will shadow one defined at any higher scope ie:
+        fun shadow() {
+            print clock();
+            fun clock() {
+                return "clock";
+            }
+            print clock();
+        }
+        shadow();
+
+        plox examples/shadow.lox
+        1736414.0000749
+        clock
+
+        Args:
+            name: Token. Token representing the name of the variable to look up.
+            expr: Expr. Expression (Variable/This/Super), which requires look up.
+
+        Returns:
+            value: object. The runtime value retrieved from the Environment of
+                the resolved scope which contained a variable of the same name
+                during the Resolver process.
+        """
+
         # Get the resolved distance up the scope stack for this variable
         distance = self.locals.get(expr)
 
@@ -222,7 +388,7 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         raise LoxRuntimeError(operator, "Operands must be numbers.")
 
     def visit_grouping_expr(self, expr: Grouping) -> object:
-        """Interpret a grouping expression.
+        """Evaluate a grouping expression.
 
         This invokes the expression's visitor method, interpreting it and
         returning the value. For example, (2 + 2) would visit the binary
@@ -251,23 +417,69 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         return expr.accept(self)
 
     def execute(self, stmt: Stmt) -> None:
+        """Evaluate a statement, which returns no value but may have side effects.
+
+        Args:
+            stmt: Stmt. Statement to execute.
+        """
+
         stmt.accept(self)
 
     def resolve(self, expr: Expr, depth: int) -> None:
+        """Resolve the Environment depth for a given expression.
+
+        This is called by the Resolver process prior to runtime execution and
+        records the location of a local variable in the scope chain for a given
+        expression requiring resolution (Variable/This/Super).
+
+        Args:
+            expr: Expr. Expression to resolve depth for.
+            depth: int. The depth in the Environment scope chain which will
+                contain the variable with a name matching the one in this expr.
+        """
+
         self.locals[expr] = depth
 
     def execute_block(self, statements: List[Stmt], environment: Environment) -> None:
+        """Execute a block of statements.
+
+        This is the runtime equivalent to the Resolver's begin_scope() method. An
+        Environment is created for the new block scope at the end of the scope
+        tree. All statements are then executed in this new Environment. If an
+        expression requires a runtime value (Variable/This/Super), the Resolver's
+        scope data will be used to locate the correct Environment. See the
+        resolve() and look_up_variable() methods for more info.
+
+        Args:
+            statements: List[Stmt]. Statements to execute in the new block scope.
+            environment: Environment. New Environment to place at the end of the
+                scope chain to hold this scope's local variable values.
+        """
+
+        # Store previous runtime scope's Environment.
         previous = self.environment
 
         try:
+            # Begin new runtime scope, setting the supplied Environment as current.
             self.environment = environment
 
+            # Execute all statements in this runtime scope
             for statement in statements:
                 self.execute(statement)
         finally:
+            # End scope, restoring the stored previous scope's Environment.
             self.environment = previous
 
     def visit_block_stmt(self, stmt: Block) -> None:
+        """Execute a block statement.
+
+        This will execute a block of statements, creating a new runtime Environment
+        for it. See execute_block() for more info.
+
+        Args:
+            stmt: Block. Block statement to execute.
+        """
+
         self.execute_block(stmt.statements, Environment(self.environment))
 
     def visit_class_stmt(self, stmt: Class) -> None:
@@ -310,27 +522,75 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         self.environment.assign(stmt.name, klass)
 
     def visit_expression_stmt(self, stmt: Expression) -> None:
+        """Execute an expression statement.
+
+        This evaluates the inner expression as a side effect, but does not return
+        the value.
+
+        Args:
+            stmt: Expression. Expression statement to execute.
+        """
+
         self.evaluate(stmt.expression)
 
     def visit_function_stmt(self, stmt: Function) -> None:
+        """Execute a function statement.
+
+        This creates the LoxFunction runtime representation of the function and
+        defines it in the enclosing environment.
+
+        Args:
+            stmt: Function. Function statement to execute.
+        """
+
         # Store the Environment from function declaration time
-        # Set isInitializer to false since this is a function and not a
+        # Set is_initializer to false since this is a function and not a
         # class method declaration
         function = LoxFunction(stmt, self.environment, False)
 
         self.environment.define(stmt.name.lexeme, function)
 
     def visit_if_stmt(self, stmt: If) -> None:
+        """Execute an if statement.
+
+        This evaluates the condition expression, and executes the then or else
+        branches based on the result.
+
+        Args:
+            stmt: If. If statement to execute.
+        """
+
         if self.is_truthy(self.evaluate(stmt.condition)):
             self.execute(stmt.then_branch)
         elif stmt.else_branch is not None:
             self.execute(stmt.else_branch)
 
     def visit_print_stmt(self, stmt: Print) -> None:
+        """Execute a print statement.
+
+        This evaluates the expression and prints it to stdout using Python's
+        built-in print() function.
+
+        Args:
+            stmt: Print. Print statement to execute.
+        """
+
         value = self.evaluate(stmt.expression)
         print(self.stringify(value))
 
     def visit_return_stmt(self, stmt: ReturnStmt) -> None:
+        """Execute a return statement.
+
+        This evaluates the expression to be returned, if any, and raises a
+        special Return exception with the value. This is caught and handled
+        internally by LoxFunction.call, extracting the value and returning it
+        to the Python call-site in visit_call_expr. See lox_return.Return for more
+        info.
+
+        Args:
+            stmt: Return. Return statement to execute.
+        """
+
         value = None
         if stmt.value is not None:
             # Evaluate the return statement's value if it has one
@@ -341,6 +601,15 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         raise Return(value)
 
     def visit_var_stmt(self, stmt: Var) -> None:
+        """Execute a var statement.
+
+        This defines a new variable in the current scope's Environment and
+        evaluates/assigns the initializer if one is provided.
+
+        Args:
+            stmt: Var. Var statement to execute.
+        """
+
         value = None
         if stmt.initializer is not None:
             value = self.evaluate(stmt.initializer)
@@ -348,10 +617,29 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         self.environment.define(stmt.name.lexeme, value)
 
     def visit_while_stmt(self, stmt: While) -> None:
+        """Execute a while statement.
+
+        This will continually execute the statement body so long as the statement
+        condition evaluates to a truthy value after each execution.
+
+        Args:
+            stmt: While. While statement to execute.
+        """
+
         while self.is_truthy(self.evaluate(stmt.condition)):
             self.execute(stmt.body)
 
     def visit_assign_expr(self, expr: Assign) -> object:
+        """Execute an assignment expression.
+
+        This will resolve the closest local (or global) scope with the variable
+        referenced in this expression and assign the value of the evaluated
+        expression.
+
+        Args:
+            expr: Assign. Assignment expression to execute.
+        """
+
         value = self.evaluate(expr.value)
 
         distance = self.locals.get(expr)
@@ -362,7 +650,24 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
 
         return value
 
-    def visit_binary_expr(self, expr: Binary) -> object:
+    def visit_binary_expr(self, expr: Binary) -> Union[float, bool, str]:
+        """Evaluate a binary expression.
+
+        This handles all binary comparison operations at runtime, evaluating
+        both the left and right sides and returning a value of the expected
+        type based on the operation and operands.
+
+        Args:
+            binary: Binary. Binary expression to evaluate.
+
+        Returns:
+            value: Union[float, bool, str]. Python primitive value representing
+                the result of the binary expression.
+
+        Raises:
+            LoxRuntimeError: If an unhandled binary operator is encountered.
+        """
+
         left = self.evaluate(expr.left)
         right = self.evaluate(expr.right)
 
@@ -411,9 +716,35 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
                 return cast(float, left) * cast(float, right)
             # Unreachable
             case _:
-                return None
+                raise LoxRuntimeError(expr.operator, "Unknown binary operator")
 
     def visit_call_expr(self, expr: Call) -> object:
+        """Evaluate a call expression.
+
+        This evaluates the callee and any arguments, then calls the resolved
+        callee, returning the value from it if any.
+
+        Callee evaluation can yield either a LoxFunction or a LoxClass, both
+        of which implement the LoxCallable base class. See the respective classes
+        for more info on call behavior.
+
+        When calling, execution is handed over to the calling instance itself,
+        which will create the Environment and execute all statements. Additionally,
+        it will capture the Lox Return exception which is raised when a Return
+        statement is encountered in a Callable's body, returning the value.
+
+        Args:
+            expr: Call. Call expression to evaluate.
+
+        Returns:
+            value: object. Result of the call.
+
+        Raises:
+            LoxRuntimeError: If the callee resolves to a non-callable value which
+                does not implement the LoxCallable interface, or if the incorrect
+                number of arguments is supplied to the call.
+        """
+
         # Evaluate the expression which yields the callee
         callee = self.evaluate(expr.callee)
 
@@ -445,6 +776,18 @@ class Interpreter(ExprVisitor[object], StmtVisitor[None]):
         return function.call(self, arguments)
 
     def visit_get_expr(self, expr: Get) -> object:
+        """Evaluate a get expression.
+
+        This evaluates the Lox class instance which is being accessed and retrieves
+        the property from it.
+
+        Args:
+            expr: Get. Get expression to evaluate.
+
+        Returns:
+            result: object. Retrieved runtime value for Lox instance property.
+        """
+
         obj = self.evaluate(expr.object)
 
         if isinstance(obj, LoxInstance):

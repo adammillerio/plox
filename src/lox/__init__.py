@@ -11,6 +11,22 @@ from lox.scanner import Scanner
 
 
 def main() -> None:
+    """Main entrypoint for the Lox interpreter.
+
+    This function is invoked if this __init__.py is executed directly, or via
+    the plox CLI entrypoint.
+
+    With no arguments it will start an interactive Lox REPL.
+
+    If the argument is a file, it will be executed by the Lox interpreter.
+
+    Otherwise, the following commands are provided:
+    plox run_prompt <- Run the interactive REPL
+    plox run <source_or_stdin> <- Read a source string and execute it, - for stdin.
+    plox run_file <file> <- Read a Lox source at a given path and execute it.
+    plox print_ast <file> <- Read a Lox source at a given path and print the AST.
+    """
+
     # First argument in argv is always the script itself in Python
     if len(argv) == 2:
         if argv[1] == "run_prompt":

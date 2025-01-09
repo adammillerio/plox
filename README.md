@@ -11,7 +11,8 @@ Lox was created by Robert Nystrom as part of the [Crafting Interpreters](https:/
 book.
 
 The sample repo has a comprehensive test suite which `plox` passes as well. Refer
-to the testing section of the README for more info.
+to the testing section of the README for more info. Function and class documentation
+is also provided, mostly just as the notes I took while working through the book.
 
 # Usage
 
